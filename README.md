@@ -6,6 +6,6 @@ Makefile is using sdk generated from yocto build for angstrom<br />
 ## Tested 
 Linux
 ## TODO
-Add proper Commenting
-Make more generic 
-Add API for using pins as GPIO
+Add proper Commenting<br />
+Make more generic<br />
+Add API for using pins as GPIO<br />
