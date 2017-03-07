@@ -5,3 +5,7 @@ Reads internal temperature diode some work still to implement reading diode prop
 Makefile is using sdk generated from yocto build for angstrom<br />
 ## Tested 
 Linux
+## TODO
+Add proper Commenting
+Make more generic 
+Add API for using pins as GPIO
