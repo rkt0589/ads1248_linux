@@ -14,8 +14,8 @@
 ##############################################################################
 
 # Set the input source files, the binary name and used libraries to link
-SRCS =	ads1248.o
-PROG := ads1248
+SRCS =	ads1248_test.o ads1248.o
+PROG := ads1248_test
 LIBS = -lm
 
 ARCH_CFLAGS = -march=armv7-a -fno-tree-vectorize -mthumb-interwork -mfloat-abi=hard -mfpu=neon -mtune=cortex-a5

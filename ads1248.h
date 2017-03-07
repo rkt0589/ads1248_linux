@@ -12,6 +12,8 @@
 #include <linux/types.h>
 #include <linux/spi/spidev.h>
 
+#define DRDY_VALUE "/sys/class/gpio/gpio53/value"
+#define DRDY_DIRECTION "/sys/class/gpio/gpio53/direction"
 // Register list of ADS1248
 enum reg
 {
@@ -205,6 +207,10 @@ enum GPIODAT
   IODAT6 = (1 << 6), // GPIO6 shared with AIN6
   IODAT7 = (1 << 7), // GPIO7 shared with AIN7
 };
+// Init Serial communication and reset ads1248 chip
+// @param DREDY gpio pin pass -1 if not used
+// @return 0 on success -1 on failed
+int ads1248Init(int drdy_pin);
 // Synchronisation cmd of ADS1248
 void sync(void);
 // Reset cmd of ADS1248
@@ -216,7 +222,11 @@ uint8_t readReg(uint8_t regAddress);
 // Write ADS1248 register
 // @param reg is register address
 // @param val value to write
-void writeReg(uint8_t regAddress, uint8_t regValue);
+// @return 0 on success -1 on failed
+int writeReg(uint8_t regAddress, uint8_t regValue);
+// Read 24 bit data
+// @return 24 bit value
+int readAdc();
 // System Offset Calibration cmd of ADS1248
 void systemOffsetCal(void);
 // System Gain Calibration cmd of ADS1248

@@ -1,59 +1,63 @@
 /* Program to test ADS1248 with Colibri VFxx SPI 1*/
 
 #include "ads1248.h"
-#define ADS1248_HOLD_TIME_US        2
-#define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
-static void pabort(const char *s)
-{
-  perror(s);
-  abort();
-}
-// #define DEBUG 0
+//#define DEBUG 1
+
 static const char *device = "/dev/spidev1.0";
 static uint32_t mode = 1;
 static uint8_t bits = 8;
 static uint32_t speed = 500000;
 static uint16_t delay;
+uint32_t drdy_pin = -1;
 int fd = 0;
 
-static void openSPI()
+static int openSPI()
 {
   int ret = 0;
   fd = open(device, O_RDWR);
-  if (fd < 0)
-  pabort("can't open device");
-  /*
-  * spi mode
-  */
+  if (fd < 0){
+    printf("can't open device");
+    return -1;
+  }
+  //spi mode
   ret = ioctl(fd, SPI_IOC_WR_MODE32, &mode);
-  if (ret == -1)
-  pabort("can't set spi mode");
-
+  if (ret == -1){
+  printf("can't set spi mode");
+  return ret;
+  }
   ret = ioctl(fd, SPI_IOC_RD_MODE32, &mode);
-  if (ret == -1)
-  pabort("can't get spi mode");
-  /*
-  * bits per word
-  */
+  if (ret == -1){
+    printf("can't get spi mode");
+    return ret;
+  }
+  // bits per word
   ret = ioctl(fd, SPI_IOC_WR_BITS_PER_WORD, &bits);
-  if (ret == -1)
-  pabort("can't set bits per word");
-
+  if (ret == -1){
+    printf("can't set bits per word");
+    return ret;
+  }
   ret = ioctl(fd, SPI_IOC_RD_BITS_PER_WORD, &bits);
-  if (ret == -1)
-  pabort("can't get bits per word");
-  /*
-  * max speed hz
-  */
+  if (ret == -1){
+    printf("can't get bits per word");
+    return ret;
+  }
+  // max speed hz
   ret = ioctl(fd, SPI_IOC_WR_MAX_SPEED_HZ, &speed);
-  if (ret == -1)
-  pabort("can't set max speed hz");
+  if (ret == -1){
+    printf("can't set max speed hz");
+    return ret;
+  }
   ret = ioctl(fd, SPI_IOC_RD_MAX_SPEED_HZ, &speed);
-  if (ret == -1)
-  pabort("can't get max speed hz");
+  if (ret == -1){
+    printf("can't get max speed hz");
+    return ret;
+  }
+  #ifdef DEBUG
   printf("spi mode: 0x%x\n", mode);
   printf("bits per word: %d\n", bits);
   printf("max speed: %d Hz (%d KHz)\n", speed, speed/1000);
+  #endif
+  return ret;
 }
 
 static int transfer(uint8_t  *tx, uint8_t  *rx, size_t len)
@@ -72,6 +76,76 @@ static int transfer(uint8_t  *tx, uint8_t  *rx, size_t len)
   return ret;
 }
 
+static void closeSPI()
+{
+  close(fd);
+}
+
+static void gpioExport(int gpio)
+{
+    int fd;
+    char buf[255];
+    fd = open("/sys/class/gpio/export", O_WRONLY);
+    sprintf(buf, "%d", gpio);
+    write(fd, buf, strlen(buf));
+    close(fd);
+}
+
+static void gpioDirection(int gpio, int direction) // 1 for output, 0 for input
+{
+    int fd;
+    char buf[255];
+    sprintf(buf, "/sys/class/gpio/gpio%d/direction", gpio);
+    fd = open(buf, O_WRONLY);
+    if (direction)
+    {
+        write(fd, "out", 3);
+    }
+    else
+    {
+        write(fd, "in", 2);
+    }
+    close(fd);
+}
+
+static int readGpio(int gpio)
+{
+  char value;
+  int fd;
+  char buf[255];
+  sprintf(buf, "/sys/class/gpio/gpio%d/value", gpio);
+  fd = open(buf, O_RDONLY);
+  read(fd, &value, 1);
+  close(fd);
+  return (int)value;
+}
+
+static int GetADS1148Drdy()
+{
+  if(drdy_pin == -1)
+  return -1;
+  gpioExport(drdy_pin);
+  gpioDirection(drdy_pin, 0);// 1 for output 0 for input
+  return readGpio(drdy_pin);
+}
+
+int ads1248Init(int drdy)
+{
+  if(openSPI() == -1)
+  {
+    closeSPI();
+    printf("Error in adsInit");
+    return -1;
+  }
+  if(drdy != -1)
+  {
+    drdy_pin = drdy;
+  }
+  usleep(100);
+  reset();
+  usleep(100000);
+  return 0;
+}
 void sync()
 {
   uint8_t tx[1] = {0};
@@ -112,7 +186,7 @@ uint8_t readReg(uint8_t regAddress)
   return rx[2];
 }
 
-void writeReg(uint8_t regAddress, uint8_t regValue)
+int writeReg(uint8_t regAddress, uint8_t regValue)
 {
   uint8_t tx[4] = {0};
   uint8_t rx[4] = {0};
@@ -123,6 +197,7 @@ void writeReg(uint8_t regAddress, uint8_t regValue)
   if(transfer(tx, rx, 4) < 0)
   {
     printf("Error in writeReg");
+    return -1;
   }
   #ifdef DEBUG
   printf("Register Write %x = %x\n", regAddress, regValue);
@@ -131,6 +206,7 @@ void writeReg(uint8_t regAddress, uint8_t regValue)
   {
     printf("Write Register %x value failed, Value read is %x\n", regAddress, readReg(regAddress));
   }
+  return 0;
 }
 
 void systemOffsetCal(void)
@@ -166,22 +242,6 @@ void selfOffsetCal(void)
   }
 }
 
-void adcInit()
-{
-	  writeReg(MUX0, 0b00000001); 	// MUX0:  Pos. input: AIN0, Neg. input: AIN1 (Burnout current source off)
-    writeReg(MUX1, 0b00100000); 	// MUX1:  REF0, normal operation
-    writeReg(SYS0, 0b00000000); 	// SYS0:  PGA Gain = 1, 5 SPS
-    writeReg(IDAC0,0b00000000); 	// IDAC0: off
-    writeReg(IDAC1,0b11001100); 	// IDAC1: n.c.
-    writeReg(VBIAS,0b00000000); 	// VBIAS: BIAS voltage disabled
-    writeReg(OFC0, 0b00000000); 	// OFC0:  0 => reset offset calibration
-    writeReg(OFC1, 0b00000000); 	// OFC1:  0 => reset offset calibration
-    writeReg(OFC2, 0b00000000); 	// OFC2:  0 => reset offset calibration
-    writeReg(GPIOCFG, 0b00000000);  // GPIOCFG: all used as analog inputs
-    writeReg(GPIODIR, 0b00000000);  // GPIODIR: -
-    writeReg(GPIODAT, 0b00000000);  // GPIODAT: -
-}
-
 int readAdc()
 {
   int adcValue = 0;
@@ -191,78 +251,20 @@ int readAdc()
 	tx[1] = NOP;
 	tx[2] = NOP;
 	tx[3] = NOP;
+  while((GetADS1148Drdy() == 1) | (GetADS1148Drdy() == -1)){}
 	if(transfer(tx, rx, 4) < 0)
 	{
 		printf("Error in selfOffsetCal");
 	}
   adcValue = ((rx[1]<<16)+(rx[2]<<8)+rx[3]);
   int value = (adcValue & 0x7FFFFF);
-  int sign = (adcValue & 0x800000) == 0x800000;
-  if (sign){
+  int sign = (adcValue & 0x800000);
+  if (sign)
+  {
     value *= -1;
   }
   #ifdef DEBUG
 	printf("Value %d\n", adcValue);
   #endif
   return value;
-}
-
-void readInternalTemp()
-{
-  writeReg(MUX1, (uint8_t)(VREFCON_INTREFON | REFSELT_REFOB | MUXCAL_TEMP));
-  printf("Ambient Temperature %d\n", readAdc());
-}
-
-void setGpioConfiguration()
-{
-  writeReg(GPIOCFG, (uint8_t)(IOCFG_GPIO4 | IOCFG_GPIO5 | IOCFG_GPIO6));
-  writeReg(GPIODIR, 0x00);
-}
-void testSPI()
-{
-	uint8_t reg_tx[] = {0x01, 0x02,
-	};
-	uint8_t rx[16] = {0};
-	if(transfer(reg_tx, rx, 2) < 0)
-	{
-		printf("Error in selfOffsetCal");
-	}
-
-}
-
-void debug_dump()
-{
-  printf("MUX0 = %x\n", readReg(MUX0));
-  printf("VBIAS = %x\n", readReg(VBIAS));
-  printf("MUX1 = %x\n", readReg(MUX1));
-  printf("SYS0 = %x\n", readReg(SYS0));
-  printf("OFC0 = %x\n", readReg(OFC0));
-  printf("OFC1 = %x\n", readReg(OFC1));
-  printf("OFC2 = %x\n", readReg(OFC2));
-  printf("FSC0 = %x\n", readReg(FSC0));
-  printf("FSC1 = %x\n", readReg(FSC1));
-  printf("FSC2 = %x\n", readReg(FSC2));
-  printf("IDAC0 = %x\n", readReg(IDAC0));
-  printf("IDAC1 = %x\n", readReg(IDAC1));
-  printf("GPIOCFG = %x\n", readReg(GPIOCFG));
-  printf("GPIODIR = %x\n", readReg(GPIODIR));
-  printf("GPIODAT = %x\n", readReg(GPIODAT));
-}
-
-int main(int argc, char *argv[])
-{
-  int ret = 0;
-  openSPI();
-  usleep(100);
-  reset();
-  usleep(100000);
-  readInternalTemp();
-  while(1)
-  {
-    readInternalTemp();
-    sleep(1);
-  }
-  printf("Program End Here\n");
-  close(fd);
-  return ret;
 }
